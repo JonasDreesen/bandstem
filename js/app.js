@@ -1,9 +1,11 @@
 // Bandstem — stemmen op de nummers uit de gedeelde Spotify-playlist.
 
-const INSTR = { zang: 'Zang', gitaar: 'Gitaar', bas: 'Bas', drums: 'Drums', piano: 'Piano' };
+const INSTR = { zang: 'Zang', gitaar: 'Gitaar', bas: 'Bas', drums: 'Drums', piano: 'Piano', coach: 'Coach' };
+const instrOption = k => k === 'coach' ? 'Coach (speelt niet mee)' : INSTR[k];
 const DIFF = { 1: 'Makkelijk', 2: 'Te doen', 3: 'Moeilijk' };
-const VOTE = { yes: 'Ja', maybe: 'Misschien', no: 'Nee' };
-const POINTS = { yes: 2, maybe: 1, no: -2 };
+const VOTE = { super: '★ Super', yes: 'Ja', maybe: 'Misschien', no: 'Nee' };
+const POINTS = { super: 3, yes: 2, maybe: 1, no: -2 };
+const SUPER_MAX = 3;
 const NEW_DAYS = 7;
 
 const S = {
@@ -49,11 +51,14 @@ function errText(e) {
   const m = String(e?.message || e || '');
   if (/anonymous sign-ins are disabled/i.test(m)) return 'Anonieme login staat uit in Supabase. Zet "Allow anonymous sign-ins" aan (zie handleiding).';
   if (/verkeerde bandcode/.test(m)) return 'Die bandcode klopt niet.';
+  if (/superlike-limiet/.test(m)) return `Je hebt al ${SUPER_MAX} superlikes gegeven. Haal er eerst één weg.`;
   if (/ongeldige naam/.test(m)) return 'Kies een naam van 1 tot 30 tekens.';
   if (/Failed to fetch|NetworkError/i.test(m)) return 'Geen verbinding. Controleer je internet.';
   return m || 'Er ging iets mis.';
 }
 const myRow = songId => S.votes.get(key(S.me.id, songId)) || { vote: null, difficulty: null, comment: '' };
+const mySupers = () => S.songs.filter(s => myRow(s.spotify_id).vote === 'super').length;
+const isCoach = () => S.me?.instrument === 'coach';
 
 // ---------- Opstarten ----------
 async function boot() {
@@ -129,7 +134,7 @@ function showLogin(step = 1, members = []) {
         h('b', { text: m.name }), h('span', { class: 'muted', text: INSTR[m.instrument] || m.instrument }))))));
   }
   const name = h('input', { class: 'input', id: 'newname', type: 'text', maxlength: '30', autocomplete: 'given-name', placeholder: 'Voornaam' });
-  const instr = h('select', { class: 'select', id: 'newinstr' }, Object.entries(INSTR).map(([k, v]) => h('option', { value: k, text: v })));
+  const instr = h('select', { class: 'select', id: 'newinstr' }, Object.keys(INSTR).map(k => h('option', { value: k, text: instrOption(k) })));
   box.append(h('form', { class: 'panel', onsubmit: e => { e.preventDefault(); if (name.value.trim()) join(name.value, instr.value); else err.textContent = 'Vul je naam in.'; } },
     h('h2', { text: members.length ? 'Nieuw in de band?' : 'Jij bent de eerste' }),
     h('div', { class: 'row' },
@@ -193,7 +198,7 @@ function renderHeader() {
     if (error) return toast(errText(error));
     S.me.instrument = v; const m = S.members.find(x => x.id === S.me.id); if (m) m.instrument = v;
     toast(`Instrument gewijzigd naar ${INSTR[v]}`); render();
-  } }, Object.entries(INSTR).map(([k, v]) => h('option', { value: k, text: v, selected: k === S.me.instrument })));
+  } }, Object.keys(INSTR).map(k => h('option', { value: k, text: INSTR[k], selected: k === S.me.instrument })));
   me.replaceChildren(h('b', { text: S.me.name }), sel,
     h('button', { class: 'linkbtn', type: 'button', text: 'Afmelden', onclick: async () => { await S.sb.auth.signOut(); location.hash = ''; location.reload(); } }));
 
@@ -228,7 +233,8 @@ function renderVoting() {
   main.replaceChildren(
     h('div', { class: 'progress' },
       h('div', { class: 'meta' }, h('span', { id: 'progtext', text: `Jij beoordeelde ${done} van ${total} nummers` }), h('span', { class: 'mono', id: 'progpct', text: Math.round(100 * done / total) + '%' })),
-      h('div', { class: 'bar' }, h('span', { id: 'progbar', style: `width:${100 * done / total}%` }))),
+      h('div', { class: 'bar' }, h('span', { id: 'progbar', style: `width:${100 * done / total}%` })),
+      h('div', { class: 'supers', id: 'supers' }, superMeter())),
     h('div', { class: 'toolbar' }, h('div', { class: 'chips' }, filters.map(([k, label]) =>
       h('button', { class: 'chip', type: 'button', 'aria-pressed': String(S.filter === k), text: label, onclick: () => { S.filter = k; renderVoting(); } })))),
     list.length
@@ -244,6 +250,13 @@ function updateProgress() {
   document.getElementById('progpct').textContent = Math.round(100 * done / total) + '%';
   document.getElementById('progbar').style.width = (100 * done / total) + '%';
   const chip = document.querySelector('.chips .chip'); if (chip) chip.textContent = `Te beoordelen (${total - done})`;
+  document.getElementById('supers')?.replaceChildren(...superMeter());
+}
+
+function superMeter() {
+  const used = mySupers();
+  return [h('span', { class: 'stars', 'aria-hidden': 'true' }, Array.from({ length: SUPER_MAX }, (_, i) => h('span', { class: i < used ? 'on' : '', text: '★' }))),
+    h('span', { text: used >= SUPER_MAX ? `Al je ${SUPER_MAX} superlikes zijn op` : `Nog ${SUPER_MAX - used} van ${SUPER_MAX} superlikes over, voor nummers waar je echt fan van bent` })];
 }
 
 function songHead(s) {
@@ -256,18 +269,22 @@ function songHead(s) {
 
 function songCard(s) {
   const id = s.spotify_id, r = myRow(id);
-  const card = h('article', { class: 'card' + (r.vote ? ' done' : ''), 'data-song': id });
+  const card = h('article', { class: 'card' + (r.vote === 'super' ? ' super' : r.vote ? ' done' : ''), 'data-song': id });
   const voteSeg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Jouw stem' },
     Object.entries(VOTE).map(([v, label]) => h('button', { type: 'button', 'data-v': v, 'aria-pressed': String(r.vote === v), text: label,
-      onclick: () => save(id, { vote: r.vote === v ? null : v }) })));
-  const diffSeg = h('div', { class: 'difrow' },
+      onclick: () => {
+        if (v === 'super' && r.vote !== 'super' && mySupers() >= SUPER_MAX) return toast(`Je hebt al ${SUPER_MAX} superlikes gegeven. Haal er eerst één weg.`);
+        save(id, { vote: r.vote === v ? null : v });
+      } })));
+  const diffSeg = isCoach() ? null : h('div', { class: 'difrow' },
     h('span', { class: 'label', text: INSTR[S.me.instrument] }),
     h('div', { class: 'seg small', role: 'group', 'aria-label': 'Moeilijkheid voor jouw instrument' },
       Object.entries(DIFF).map(([d, label]) => h('button', { type: 'button', 'data-d': d, 'aria-pressed': String(r.difficulty === Number(d)), text: label,
         onclick: () => save(id, { difficulty: r.difficulty === Number(d) ? null : Number(d) }) }))));
 
   const showComment = S.comments.has(id) || !!r.comment;
-  const ta = h('textarea', { id: 'c-' + id, maxlength: '500', placeholder: 'Bv. te hoog voor mij, makkelijk riffje, goed als opener…', 'aria-label': 'Opmerking' });
+  const ta = h('textarea', { id: 'c-' + id, maxlength: '500', 'aria-label': isCoach() ? 'Advies' : 'Opmerking',
+    placeholder: isCoach() ? 'Bv. goed nummer om samenspel te oefenen, let op het tempo in het refrein…' : 'Bv. te hoog voor mij, makkelijk riffje, goed als opener…' });
   ta.value = r.comment || '';
   const savedNote = h('span', { class: 'saved', 'aria-live': 'polite' });
   ta.addEventListener('input', () => {
@@ -281,10 +298,10 @@ function songCard(s) {
   if (S.open.has(id)) player.append(embed(id));
   const actions = h('div', { class: 'actions' },
     h('button', { type: 'button', text: S.open.has(id) ? 'Speler sluiten' : '▶ Luisteren', onclick: () => { S.open.has(id) ? S.open.delete(id) : S.open.add(id); card.replaceWith(songCard(s)); } }),
-    showComment ? null : h('button', { type: 'button', text: 'Opmerking', onclick: () => { S.comments.add(id); card.replaceWith(songCard(s)); document.getElementById('c-' + id)?.focus(); } }),
+    showComment ? null : h('button', { type: 'button', text: isCoach() ? 'Advies geven' : 'Opmerking', onclick: () => { S.comments.add(id); card.replaceWith(songCard(s)); document.getElementById('c-' + id)?.focus(); } }),
     h('a', { href: 'https://open.spotify.com/track/' + id, target: '_blank', rel: 'noopener', text: 'Open in Spotify' }));
 
-  card.append(...[songHead(s), voteSeg, diffSeg, showComment ? h('div', { class: 'field' }, h('label', { class: 'label', for: 'c-' + id, text: 'Opmerking' }), ta, savedNote) : null, actions, player].filter(Boolean));
+  card.append(...[songHead(s), voteSeg, diffSeg, showComment ? h('div', { class: 'field' }, h('label', { class: 'label', for: 'c-' + id, text: isCoach() ? 'Advies als coach' : 'Opmerking' }), ta, savedNote) : null, actions, player].filter(Boolean));
   return card;
 }
 function embed(id) {
@@ -310,7 +327,13 @@ function save(songId, patch, rerender = true) {
       member_id: S.me.id, song_id: songId, vote: cur.vote || null, difficulty: cur.difficulty || null,
       comment: cur.comment ? cur.comment : null, updated_at: new Date().toISOString(),
     }, { onConflict: 'member_id,song_id' });
-    if (error) toast('Opslaan mislukt: ' + errText(error));
+    if (error) {
+      toast(/superlike-limiet/.test(error.message) ? errText(error) : 'Opslaan mislukt: ' + errText(error));
+      await loadVotes();
+      const card = main.querySelector(`[data-song="${songId}"]`), s = S.songs.find(x => x.spotify_id === songId);
+      if (card && s && S.view === 'stemmen') card.replaceWith(songCard(s));
+      updateProgress();
+    }
   });
   S.queues.set(songId, next);
   next.finally(() => { if (S.queues.get(songId) === next) S.queues.delete(songId); });
@@ -319,13 +342,15 @@ function save(songId, patch, rerender = true) {
 
 // ---------- Resultaten ----------
 function tally(songId) {
-  const t = { yes: [], maybe: [], no: [], none: [], diffs: [], comments: [], score: 0, diffAvg: null };
+  const t = { super: [], yes: [], maybe: [], no: [], none: [], diffs: [], comments: [], score: 0, diffAvg: null };
   for (const m of S.members) {
     const r = S.votes.get(key(m.id, songId));
     if (r?.vote) { t[r.vote].push(m); t.score += POINTS[r.vote]; } else t.none.push(m);
-    if (r?.difficulty) t.diffs.push({ m, d: r.difficulty });
+    if (r?.difficulty && m.instrument !== 'coach') t.diffs.push({ m, d: r.difficulty });
     if (r?.comment) t.comments.push({ m, c: r.comment });
   }
+  t.comments.sort((a, b) => (b.m.instrument === 'coach') - (a.m.instrument === 'coach'));
+  t.fans = t.super.length + t.yes.length;
   if (t.diffs.length) t.diffAvg = t.diffs.reduce((a, x) => a + x.d, 0) / t.diffs.length;
   return t;
 }
@@ -339,18 +364,19 @@ function renderResults() {
   }));
 
   let rows = S.songs.map(s => ({ s, t: tally(s.spotify_id) }));
-  if (S.resFilter === 'noNo') rows = rows.filter(r => r.t.no.length === 0 && r.t.yes.length > 0);
+  if (S.resFilter === 'noNo') rows = rows.filter(r => r.t.no.length === 0 && r.t.fans > 0);
   if (S.resFilter === 'complete') rows = rows.filter(r => r.t.none.length === 0);
   const sorters = {
-    score: (a, b) => b.t.score - a.t.score || b.t.yes.length - a.t.yes.length || a.s.position - b.s.position,
-    split: (a, b) => Math.min(b.t.yes.length, b.t.no.length) - Math.min(a.t.yes.length, a.t.no.length) || b.t.score - a.t.score,
+    score: (a, b) => b.t.score - a.t.score || b.t.super.length - a.t.super.length || b.t.yes.length - a.t.yes.length || a.s.position - b.s.position,
+    super: (a, b) => b.t.super.length - a.t.super.length || b.t.score - a.t.score,
+    split: (a, b) => Math.min(b.t.fans, b.t.no.length) - Math.min(a.t.fans, a.t.no.length) || b.t.score - a.t.score,
     easy: (a, b) => (a.t.diffAvg ?? 9) - (b.t.diffAvg ?? 9) || b.t.score - a.t.score,
     new: (a, b) => new Date(b.s.first_seen) - new Date(a.s.first_seen) || a.s.position - b.s.position,
   };
   rows.sort(sorters[S.sort]);
 
   const sortSel = h('select', { class: 'select', id: 'sort', style: 'width:auto', 'aria-label': 'Sorteren', onchange: e => { S.sort = e.target.value; renderResults(); } },
-    [['score', 'Hoogste score'], ['easy', 'Makkelijkst eerst'], ['split', 'Meest verdeeld'], ['new', 'Nieuwste eerst']]
+    [['score', 'Hoogste score'], ['super', 'Meeste superlikes'], ['easy', 'Makkelijkst eerst'], ['split', 'Meest verdeeld'], ['new', 'Nieuwste eerst']]
       .map(([v, l]) => h('option', { value: v, text: l, selected: S.sort === v })));
   const chips = h('div', { class: 'chips' }, [['all', 'Alles'], ['noNo', 'Zonder Nee'], ['complete', 'Iedereen gestemd']].map(([k, l]) =>
     h('button', { class: 'chip', type: 'button', 'aria-pressed': String(S.resFilter === k), text: l, onclick: () => { S.resFilter = k; renderResults(); } })));
@@ -359,24 +385,25 @@ function renderResults() {
   const list = h('div', { class: 'list' }, rows.map((r, i) => {
     const { s, t } = r;
     const line = (cls, label, arr) => arr.length ? h('div', {}, h('span', { class: 'k ' + cls, text: `${label} ${arr.length}` }), arr.map(m => m.name).join(', ')) : null;
-    return h('article', { class: 'card' },
+    return h('article', { class: 'card' + (t.super.length ? ' super' : '') },
       h('div', { class: 'rank' },
         h('span', { class: 'n', text: String(i + 1) }),
         s.image_url ? h('img', { class: 'cover', src: s.image_url, alt: '', loading: 'lazy', width: '56', height: '56' }) : h('div', { class: 'cover' }),
         h('div', { style: 'min-width:0' }, h('div', { class: 't', style: 'font-weight:700;overflow-wrap:anywhere', text: s.title }), h('div', { class: 'muted', style: 'font-size:14px', text: s.artists })),
         h('span', { class: 'score' + (t.score > 0 ? ' pos' : t.score < 0 ? ' neg' : ''), title: 'Score', text: (t.score > 0 ? '+' : '') + t.score })),
       h('div', { class: 'stack', 'aria-hidden': 'true' },
-        h('span', { class: 'y', style: `width:${100 * t.yes.length / n}%` }), h('span', { class: 'm', style: `width:${100 * t.maybe.length / n}%` }), h('span', { class: 'x', style: `width:${100 * t.no.length / n}%` })),
-      h('div', { class: 'lines' }, line('y', 'Ja', t.yes), line('m', 'Misschien', t.maybe), line('x', 'Nee', t.no), line('o', 'Nog niet', t.none)),
+        h('span', { class: 's', style: `width:${100 * t.super.length / n}%` }), h('span', { class: 'y', style: `width:${100 * t.yes.length / n}%` }), h('span', { class: 'm', style: `width:${100 * t.maybe.length / n}%` }), h('span', { class: 'x', style: `width:${100 * t.no.length / n}%` })),
+      h('div', { class: 'lines' }, line('s', '★ Super', t.super), line('y', 'Ja', t.yes), line('m', 'Misschien', t.maybe), line('x', 'Nee', t.no), line('o', 'Nog niet', t.none)),
       t.diffs.length ? h('div', { class: 'diffs' }, t.diffs.map(({ m, d }) => h('span', { class: 'diff d' + d, text: `${INSTR[m.instrument]} (${m.name}): ${DIFF[d].toLowerCase()}` }))) : null,
-      t.comments.length ? h('div', { class: 'comments' }, t.comments.map(({ m, c }) => h('div', {}, h('b', { text: m.name + ': ' }), c))) : null,
+      t.comments.length ? h('div', { class: 'comments' }, t.comments.map(({ m, c }) => h('div', { class: m.instrument === 'coach' ? 'coachnote' : null },
+        m.instrument === 'coach' ? h('span', { class: 'badge', text: 'Coach' }) : null, h('b', { text: m.name + ': ' }), c))) : null,
       h('div', { class: 'actions' }, h('a', { href: 'https://open.spotify.com/track/' + s.spotify_id, target: '_blank', rel: 'noopener', text: 'Open in Spotify' })));
   }));
 
   main.replaceChildren(
     h('div', { class: 'field' }, h('span', { class: 'label', text: 'Wie heeft al gestemd' }), people),
     h('div', { class: 'toolbar' }, chips, sortSel),
-    h('p', { class: 'legend', text: 'Score: Ja +2, Misschien +1, Nee −2. Moeilijkheid geeft elk bandlid voor zijn eigen instrument.' }),
+    h('p', { class: 'legend', text: `Score: ★ Super +3, Ja +2, Misschien +1, Nee −2. Iedereen heeft ${SUPER_MAX} superlikes. Moeilijkheid geeft elk bandlid voor zijn eigen instrument; de coach speelt niet mee en geeft advies.` }),
     rows.length ? list : h('div', { class: 'empty', text: 'Geen nummers in deze selectie.' }),
   );
 }

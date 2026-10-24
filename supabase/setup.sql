@@ -1,7 +1,7 @@
 -- =====================================================================
 --  Bandstem: database-opzet voor Supabase
 --  Plak dit hele bestand in Supabase > SQL Editor > New query > Run.
---  Je kunt het veilig opnieuw uitvoeren; bestaande stemmen blijven staan.
+--  Je kunt het veilig opnieuw uitvoeren; bestaande stemmen en codes blijven staan.
 --
 --  PAS EERST DEZE TWEE CODES AAN (onderaan in het blok "Codes instellen"):
 --    band_code  : de code die je bandleden intypen om binnen te komen
@@ -25,7 +25,7 @@ create table if not exists public.band_members (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
   instrument  text not null default 'zang'
-              check (instrument in ('zang','gitaar','bas','drums','piano')),
+              check (instrument in ('zang','gitaar','bas','drums','piano','coach')),
   created_at  timestamptz not null default now()
 );
 create unique index if not exists band_members_name_key on public.band_members (lower(name));
@@ -54,7 +54,7 @@ create table if not exists public.band_songs (
 create table if not exists public.band_votes (
   member_id   uuid not null references public.band_members(id) on delete cascade,
   song_id     text not null references public.band_songs(spotify_id) on delete cascade,
-  vote        text check (vote in ('yes','maybe','no')),
+  vote        text check (vote in ('super','yes','maybe','no')),
   difficulty  smallint check (difficulty between 1 and 3),
   comment     text check (char_length(comment) <= 500),
   updated_at  timestamptz not null default now(),
@@ -265,7 +265,41 @@ begin
   end if;
 end $$;
 
+-- ---------- Superlike-limiet en coach (ook voor oudere installaties) ----------
+-- Coach als "instrument" toelaten
+alter table public.band_members drop constraint if exists band_members_instrument_check;
+alter table public.band_members add constraint band_members_instrument_check
+  check (instrument in ('zang','gitaar','bas','drums','piano','coach'));
+
+-- Superlike als stem toelaten
+alter table public.band_votes drop constraint if exists band_votes_vote_check;
+alter table public.band_votes add constraint band_votes_vote_check
+  check (vote in ('super','yes','maybe','no'));
+
+-- Maximaal 3 superlikes per persoon
+create or replace function public.band_superlike_limit()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if new.vote = 'super' and (
+       select count(*) from public.band_votes
+       where member_id = new.member_id and vote = 'super' and song_id <> new.song_id
+     ) >= 3 then
+    raise exception 'superlike-limiet: je hebt al 3 superlikes gegeven' using errcode = 'check_violation';
+  end if;
+  return new;
+end $$;
+revoke execute on function public.band_superlike_limit() from public, anon, authenticated;
+
+drop trigger if exists band_superlike_limit on public.band_votes;
+create trigger band_superlike_limit
+  before insert or update of vote on public.band_votes
+  for each row execute function public.band_superlike_limit();
+
 -- ---------- Codes instellen (PAS AAN) ----------
 insert into public.band_settings (id, band_code, admin_code)
 values (1, 'KIES-EEN-BANDCODE', 'KIES-EEN-ADMINCODE')
-on conflict (id) do update set band_code = excluded.band_code, admin_code = excluded.admin_code;
+on conflict (id) do nothing;  -- bestaande codes blijven staan als je dit script opnieuw uitvoert
+-- Codes later wijzigen? Gebruik:
+-- update public.band_settings set band_code = 'nieuwe-bandcode', admin_code = 'nieuwe-admincode' where id = 1;

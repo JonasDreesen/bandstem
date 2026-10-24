@@ -5,7 +5,10 @@ Samen stemmen op de nummers uit de gedeelde Spotify-playlist van de band.
 - **Site:** https://jonasdreesen.github.io/bandstem/
 - **Spotify koppelen (alleen beheerder):** https://jonasdreesen.github.io/bandstem/connect.html
 
-Bandleden loggen in met de **bandcode** en kiezen hun naam. Per nummer: Ja / Misschien / Nee, moeilijkheid voor hun eigen instrument en een opmerking. Onder **Resultaten** ziet iedereen de ranglijst.
+Bandleden loggen in met de **bandcode** en kiezen hun naam. Per nummer: ★ Super / Ja / Misschien / Nee, moeilijkheid voor hun eigen instrument en een opmerking. Onder **Resultaten** ziet iedereen de ranglijst.
+
+- **Superlike:** iedereen heeft er 3, voor nummers waar je echt fan van bent (+3 punten).
+- **Coach:** kies bij het aanmelden "Coach (speelt niet mee)". Een coach stemt mee en geeft advies per nummer, maar geeft geen moeilijkheid. Coach-advies staat bovenaan bij de opmerkingen.
 
 ## Hoe het werkt
 
@@ -14,6 +17,7 @@ Bandleden loggen in met de **bandcode** en kiezen hun naam. Per nummer: Ja / Mis
 | `index.html`, `js/app.js` | De website (GitHub Pages) |
 | `connect.html` | Eenmalig inloggen bij Spotify + eerste keer nummers ophalen |
 | `supabase/setup.sql` | Database: tabellen, beveiliging, bandcode |
+| `supabase/update-1-superlike-coach.sql` | Update voor wie setup.sql al vóór de superlike/coach-functie had uitgevoerd |
 | `scripts/sync.mjs` + `.github/workflows/sync.yml` | Haalt elk half uur nieuwe nummers op uit de playlist |
 | `config.json` | Openbare instellingen (Supabase-adres, publishable key, Spotify Client ID) |
 
