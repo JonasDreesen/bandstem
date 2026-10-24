@@ -1,0 +1,6 @@
+{
+  "name": "bandstem",
+  "private": true,
+  "type": "module",
+  "description": "Stemmen op nummers voor de band, gekoppeld aan Spotify"
+}

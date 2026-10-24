@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bandstem koppelen</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,600..800&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<main class="wrap">
+  <section class="login" style="max-width:520px">
+    <span class="logo" style="align-self:flex-start">Bandstem</span>
+    <h1>Spotify koppelen</h1>
+    <p class="muted">Alleen voor de beheerder. Je logt één keer in bij Spotify; daarna haalt de site de nummers van de playlist zelf op, elk half uur.</p>
+
+    <form class="panel" id="form">
+      <div class="field">
+        <label class="label" for="admin">Admin-code</label>
+        <input class="input" id="admin" type="password" autocomplete="off" required>
+      </div>
+      <div class="field">
+        <label class="label" for="pl">Link naar de playlist</label>
+        <input class="input" id="pl" type="text" autocomplete="off" placeholder="https://open.spotify.com/playlist/…" required>
+        <span class="muted" style="font-size:13px">In Spotify: ⋯ bij de playlist › Delen › Link kopiëren.</span>
+      </div>
+      <button class="btn" type="submit" id="go">Inloggen bij Spotify</button>
+      <p class="error" id="err" role="alert"></p>
+    </form>
+
+    <div class="panel" id="result" hidden>
+      <h2 id="rtitle"></h2>
+      <p id="rtext" class="muted" style="margin:0"></p>
+      <a class="btn" href="./" style="text-align:center;text-decoration:none">Naar Bandstem</a>
+    </div>
+    <p class="muted" style="font-size:13px">Terugsturen naar: <span class="mono" id="redir"></span><br>Dit adres moet exact zo bij “Redirect URIs” staan in je Spotify-app.</p>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+<script type="module">
+import { parsePlaylistId, fetchPlaylist, SCOPES, TOKEN_URL } from './js/spotify.js';
+
+const $ = id => document.getElementById(id);
+const redirectUri = location.origin + location.pathname;
+$('redir').textContent = redirectUri;
+const cfg = await (await fetch('config.json', { cache: 'no-store' })).json();
+const sb = supabase.createClient(cfg.supabaseUrl, cfg.supabasePublishableKey, { auth: { persistSession: false } });
+
+const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const randomString = n => b64url(crypto.getRandomValues(new Uint8Array(n)));
+function fail(msg) { $('err').textContent = msg; $('go').disabled = false; $('form').hidden = false; }
+
+$('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('err').textContent = '';
+  const playlistId = parsePlaylistId($('pl').value);
+  if (!playlistId) return fail('Dat lijkt geen Spotify-playlistlink.');
+  if (!cfg.spotifyClientId || /PLAK/.test(cfg.spotifyClientId)) return fail('Vul eerst spotifyClientId in config.json in.');
+  const verifier = randomString(64);
+  const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  const state = randomString(16);
+  sessionStorage.setItem('bandstem-connect', JSON.stringify({ verifier, state, playlistId, admin: $('admin').value }));
+  location.href = 'https://accounts.spotify.com/authorize?' + new URLSearchParams({
+    response_type: 'code', client_id: cfg.spotifyClientId, scope: SCOPES, redirect_uri: redirectUri,
+    code_challenge_method: 'S256', code_challenge: challenge, state, show_dialog: 'true',
+  });
+});
+
+// Terug van Spotify?
+const qs = new URLSearchParams(location.search);
+if (qs.has('code') || qs.has('error')) {
+  history.replaceState(null, '', location.pathname);
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem('bandstem-connect')); } catch {}
+  sessionStorage.removeItem('bandstem-connect');
+  if (qs.get('error')) fail('Spotify gaf geen toestemming: ' + qs.get('error'));
+  else if (!saved || saved.state !== qs.get('state')) fail('De koppeling is verlopen. Probeer opnieuw.');
+  else {
+    $('form').hidden = true;
+    $('result').hidden = false;
+    $('rtitle').textContent = 'Bezig met koppelen…';
+    try {
+      const res = await fetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ client_id: cfg.spotifyClientId, grant_type: 'authorization_code', code: qs.get('code'), redirect_uri: redirectUri, code_verifier: saved.verifier }) });
+      const tok = await res.json();
+      if (!res.ok) throw new Error('Spotify-token: ' + (tok.error_description || tok.error));
+      $('rtext').textContent = 'Playlist ophalen…';
+      const { name, songs } = await fetchPlaylist(tok.access_token, saved.playlistId);
+      let r = await sb.rpc('band_admin_connect', { p_admin_code: saved.admin, p_refresh_token: tok.refresh_token, p_playlist_id: saved.playlistId, p_playlist_name: name });
+      if (r.error) throw new Error(r.error.message);
+      r = await sb.rpc('band_admin_sync', { p_admin_code: saved.admin, p_songs: songs, p_playlist_name: name });
+      if (r.error) throw new Error(r.error.message);
+      $('rtitle').textContent = 'Gekoppeld';
+      $('rtext').textContent = `"${name}" is gekoppeld en ${songs.length} nummers staan klaar om te stemmen. Nieuwe nummers verschijnen vanzelf (elk half uur).`;
+    } catch (e2) {
+      $('result').hidden = true;
+      fail(String(e2.message || e2).includes('verkeerde admin-code') ? 'De admin-code klopt niet.' : String(e2.message || e2));
+    }
+  }
+}
+</script>
+</body>
+</html>

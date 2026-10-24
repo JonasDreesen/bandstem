@@ -1,0 +1,26 @@
+name: Spotify-sync
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # elk half uur
+  workflow_dispatch:          # knop "Run workflow" om meteen bij te werken
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spotify-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/sync.mjs
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}

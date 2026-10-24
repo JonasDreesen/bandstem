@@ -1,0 +1,5 @@
+{
+  "supabaseUrl": "https://JOUW-PROJECT.supabase.co",
+  "supabasePublishableKey": "PLAK-HIER-DE-PUBLISHABLE-KEY",
+  "spotifyClientId": "PLAK-HIER-DE-SPOTIFY-CLIENT-ID"
+}
