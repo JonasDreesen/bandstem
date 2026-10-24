@@ -1,7 +1,6 @@
 // Bandstem — stemmen op de nummers uit de gedeelde Spotify-playlist.
 
 const INSTR = { zang: 'Zang', gitaar: 'Gitaar', bas: 'Bas', drums: 'Drums', piano: 'Piano', coach: 'Coach' };
-const instrOption = k => k === 'coach' ? 'Coach (speelt niet mee)' : INSTR[k];
 const DIFF = { 1: 'Makkelijk', 2: 'Te doen', 3: 'Moeilijk' };
 const VOTE = { super: '★ Super', yes: 'Ja', maybe: 'Misschien', no: 'Nee' };
 const POINTS = { super: 3, yes: 2, maybe: 1, no: -2 };
@@ -134,7 +133,7 @@ function showLogin(step = 1, members = []) {
         h('b', { text: m.name }), h('span', { class: 'muted', text: INSTR[m.instrument] || m.instrument }))))));
   }
   const name = h('input', { class: 'input', id: 'newname', type: 'text', maxlength: '30', autocomplete: 'given-name', placeholder: 'Voornaam' });
-  const instr = h('select', { class: 'select', id: 'newinstr' }, Object.keys(INSTR).map(k => h('option', { value: k, text: instrOption(k) })));
+  const instr = h('select', { class: 'select', id: 'newinstr' }, Object.keys(INSTR).map(k => h('option', { value: k, text: INSTR[k] })));
   box.append(h('form', { class: 'panel', onsubmit: e => { e.preventDefault(); if (name.value.trim()) join(name.value, instr.value); else err.textContent = 'Vul je naam in.'; } },
     h('h2', { text: members.length ? 'Nieuw in de band?' : 'Jij bent de eerste' }),
     h('div', { class: 'row' },
@@ -403,7 +402,7 @@ function renderResults() {
   main.replaceChildren(
     h('div', { class: 'field' }, h('span', { class: 'label', text: 'Wie heeft al gestemd' }), people),
     h('div', { class: 'toolbar' }, chips, sortSel),
-    h('p', { class: 'legend', text: `Score: ★ Super +3, Ja +2, Misschien +1, Nee −2. Iedereen heeft ${SUPER_MAX} superlikes. Moeilijkheid geeft elk bandlid voor zijn eigen instrument; de coach speelt niet mee en geeft advies.` }),
+    h('p', { class: 'legend', text: `Score: ★ Super +3, Ja +2, Misschien +1, Nee −2. Iedereen heeft ${SUPER_MAX} superlikes. Moeilijkheid geeft elk bandlid voor zijn eigen instrument; de coach geeft advies.` }),
     rows.length ? list : h('div', { class: 'empty', text: 'Geen nummers in deze selectie.' }),
   );
 }

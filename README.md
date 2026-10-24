@@ -8,7 +8,7 @@ Samen stemmen op de nummers uit de gedeelde Spotify-playlist van de band.
 Bandleden loggen in met de **bandcode** en kiezen hun naam. Per nummer: ★ Super / Ja / Misschien / Nee, moeilijkheid voor hun eigen instrument en een opmerking. Onder **Resultaten** ziet iedereen de ranglijst.
 
 - **Superlike:** iedereen heeft er 3, voor nummers waar je echt fan van bent (+3 punten).
-- **Coach:** kies bij het aanmelden "Coach (speelt niet mee)". Een coach stemt mee en geeft advies per nummer, maar geeft geen moeilijkheid. Coach-advies staat bovenaan bij de opmerkingen.
+- **Coach:** kies bij het aanmelden "Coach" als instrument. Een coach stemt mee en geeft advies per nummer, maar geeft geen moeilijkheid. Coach-advies staat bovenaan bij de opmerkingen.
 
 ## Hoe het werkt
 
