@@ -196,3 +196,20 @@ textarea { resize: vertical; min-height: 64px; }
 .stars .on { color: var(--super); }
 .badge { font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; background: var(--ink); color: var(--bg); margin-right: 6px; vertical-align: 1px; }
 .coachnote { background: var(--surface-2); border-radius: 6px; padding: 6px 8px; margin-left: -10px; }
+
+/* ---------- We spelen ---------- */
+.tab .count { font-family: var(--font-mono); font-size: 11px; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: var(--tape); color: var(--tape-ink); vertical-align: 1px; }
+.actions .playing-on { color: var(--yes); }
+.actions .subtle { color: var(--muted); font-weight: 500; }
+.actions .danger { color: var(--no); }
+.confirm { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; color: var(--ink); }
+.meta-line { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 13px; color: var(--muted); }
+.thread { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.msg { display: flex; flex-direction: column; gap: 2px; font-size: 14.5px; }
+.msg.coachnote { margin-left: 0; padding: 8px 10px; }
+.msg-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 13px; }
+.msg-head .linkbtn { padding: 0; margin-left: auto; }
+.msg-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.composer textarea { min-height: 44px; }
+@media (max-width: 420px) { .tab { padding-inline: 8px; } }

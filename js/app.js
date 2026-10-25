@@ -9,7 +9,7 @@ const NEW_DAYS = 7;
 
 const S = {
   sb: null, me: null, code: '',
-  members: [], songs: [], votes: new Map(), status: null,
+  members: [], songs: [], votes: new Map(), status: null, playing: [], threads: [], drafts: new Map(), confirmRemove: null,
   view: 'stemmen', filter: 'todo', sort: 'score', resFilter: 'all',
   open: new Set(), comments: new Set(), queues: new Map(), timers: new Map(),
 };
@@ -146,13 +146,18 @@ function showLogin(step = 1, members = []) {
 // ---------- App ----------
 async function startApp() {
   document.getElementById('top').hidden = false;
-  S.view = location.hash === '#resultaten' ? 'resultaten' : 'stemmen';
+  S.view = VIEWS[location.hash.slice(1)] ? location.hash.slice(1) : 'stemmen';
   renderHeader();
   main.replaceChildren(h('p', { class: 'muted', text: 'Nummers laden…' }));
   await loadAll();
   render();
   S.sb.channel('band-votes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'band_votes' }, debounce(async () => { await loadVotes(); if (S.view === 'resultaten') render(); }, 500))
+    .subscribe();
+  const reloadPlaying = debounce(async () => { await loadPlaying(); if (S.view === 'spelen') renderPlaying(); else if (S.view === 'resultaten') render(); renderHeader(); }, 400);
+  S.sb.channel('band-playing')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'band_playing' }, reloadPlaying)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'band_comments' }, reloadPlaying)
     .subscribe();
   setInterval(refreshQuiet, 3 * 60 * 1000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshQuiet(); });
@@ -166,6 +171,7 @@ async function loadAll() {
     S.sb.from('band_members').select('id,name,instrument').order('created_at'),
     loadVotes(),
     S.sb.rpc('band_status'),
+    loadPlaying(),
   ]);
   if (songs.error) toast(errText(songs.error));
   S.songs = songs.data || [];
@@ -181,11 +187,22 @@ async function loadVotes() {
   S.votes = new Map(data.map(r => [key(r.member_id, r.song_id), r]));
   for (const [k, v] of pending) S.votes.set(k, v); // eigen onopgeslagen wijzigingen niet overschrijven
 }
+async function loadPlaying() {
+  const [pl, cm] = await Promise.all([
+    S.sb.from('band_playing').select('song_id,added_by,added_at').order('added_at'),
+    S.sb.from('band_comments').select('id,song_id,member_id,body,created_at').order('created_at'),
+  ]);
+  if (!pl.error) S.playing = pl.data || [];
+  if (!cm.error) S.threads = cm.data || [];
+}
+const isPlaying = id => S.playing.some(p => p.song_id === id);
+
 async function refreshQuiet() {
   const before = S.songs.map(s => s.spotify_id).join();
   await loadAll();
   const changed = S.songs.map(s => s.spotify_id).join() !== before;
-  if (S.view === 'resultaten' || (changed && !document.activeElement?.matches('textarea'))) render();
+  const typing = document.activeElement?.matches('textarea');
+  if (!typing && (S.view !== 'stemmen' || changed)) render();
 }
 
 // ---------- Kop ----------
@@ -210,14 +227,16 @@ function renderHeader() {
     st.last_sync_error ? h('span', { class: 'warn', text: 'Bijwerken mislukt: ' + st.last_sync_error }) : h('span', { text: 'Bijgewerkt ' + ago(st.last_sync) }),
   );
 
-  for (const v of ['stemmen', 'resultaten']) {
+  for (const v of Object.keys(VIEWS)) {
     const t = document.getElementById('tab-' + v);
     t.setAttribute('aria-selected', String(S.view === v));
-    t.onclick = () => { S.view = v; history.replaceState(null, '', v === 'resultaten' ? '#resultaten' : '#'); renderHeader(); render(); window.scrollTo({ top: 0 }); };
+    if (v === 'spelen') t.replaceChildren('We spelen', S.playing.length ? h('span', { class: 'count', text: String(S.playing.filter(p => S.songs.some(x => x.spotify_id === p.song_id)).length) }) : null);
+    t.onclick = () => { S.view = v; history.replaceState(null, '', v === 'stemmen' ? '#' : '#' + v); renderHeader(); render(); window.scrollTo({ top: 0 }); };
   }
 }
 
-function render() { S.view === 'resultaten' ? renderResults() : renderVoting(); }
+const VIEWS = { stemmen: () => renderVoting(), resultaten: () => renderResults(), spelen: () => renderPlaying() };
+function render() { VIEWS[S.view](); }
 
 // ---------- Stemmen ----------
 function renderVoting() {
@@ -384,6 +403,7 @@ function renderResults() {
   const list = h('div', { class: 'list' }, rows.map((r, i) => {
     const { s, t } = r;
     const line = (cls, label, arr) => arr.length ? h('div', {}, h('span', { class: 'k ' + cls, text: `${label} ${arr.length}` }), arr.map(m => m.name).join(', ')) : null;
+    const on = isPlaying(s.spotify_id);
     return h('article', { class: 'card' + (t.super.length ? ' super' : '') },
       h('div', { class: 'rank' },
         h('span', { class: 'n', text: String(i + 1) }),
@@ -396,7 +416,10 @@ function renderResults() {
       t.diffs.length ? h('div', { class: 'diffs' }, t.diffs.map(({ m, d }) => h('span', { class: 'diff d' + d, text: `${INSTR[m.instrument]} (${m.name}): ${DIFF[d].toLowerCase()}` }))) : null,
       t.comments.length ? h('div', { class: 'comments' }, t.comments.map(({ m, c }) => h('div', { class: m.instrument === 'coach' ? 'coachnote' : null },
         m.instrument === 'coach' ? h('span', { class: 'badge', text: 'Coach' }) : null, h('b', { text: m.name + ': ' }), c))) : null,
-      h('div', { class: 'actions' }, h('a', { href: 'https://open.spotify.com/track/' + s.spotify_id, target: '_blank', rel: 'noopener', text: 'Open in Spotify' })));
+      h('div', { class: 'actions' },
+        h('button', { type: 'button', class: on ? 'playing-on' : null, 'aria-pressed': String(on), text: on ? '✓ We spelen dit' : '＋ We spelen dit',
+          onclick: e => togglePlaying(s.spotify_id, e.currentTarget) }),
+        h('a', { href: 'https://open.spotify.com/track/' + s.spotify_id, target: '_blank', rel: 'noopener', text: 'Open in Spotify' })));
   }));
 
   main.replaceChildren(
@@ -405,6 +428,97 @@ function renderResults() {
     h('p', { class: 'legend', text: `Score: ★ Super +3, Ja +2, Misschien +1, Nee −2. Iedereen heeft ${SUPER_MAX} superlikes. Moeilijkheid geeft elk bandlid voor zijn eigen instrument; de coach geeft advies.` }),
     rows.length ? list : h('div', { class: 'empty', text: 'Geen nummers in deze selectie.' }),
   );
+}
+
+// ---------- We spelen ----------
+async function togglePlaying(songId, btn) {
+  if (btn) btn.disabled = true;
+  const on = isPlaying(songId);
+  const { error } = on
+    ? await S.sb.from('band_playing').delete().eq('song_id', songId)
+    : await S.sb.from('band_playing').insert({ song_id: songId, added_by: S.me.id });
+  if (error && !/duplicate key/i.test(error.message)) toast('Mislukt: ' + errText(error));
+  else toast(on ? 'Van de lijst "We spelen" gehaald' : 'Op de lijst "We spelen" gezet');
+  S.confirmRemove = null;
+  await loadPlaying();
+  renderHeader(); render();
+}
+
+function fmtDate(iso) {
+  const d = new Date(iso), today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  const time = d.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' });
+  if (sameDay) return 'vandaag ' + time;
+  const y = new Date(today); y.setDate(today.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return 'gisteren ' + time;
+  return d.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' }) + ' ' + time;
+}
+
+function renderPlaying() {
+  const focusedId = document.activeElement?.id;
+  const names = Object.fromEntries(S.members.map(m => [m.id, m]));
+  const items = S.playing.map(p => ({ p, s: S.songs.find(x => x.spotify_id === p.song_id) })).filter(x => x.s);
+  if (!items.length) {
+    main.replaceChildren(h('div', { class: 'empty' },
+      h('p', { style: 'margin:0 0 6px;font-weight:600;color:var(--ink)', text: 'Nog niets op de lijst' }),
+      'Ga naar Resultaten en tik bij een nummer op "＋ We spelen dit". Hier verschijnen dan de nummers die jullie aan het instuderen zijn, met ruimte voor commentaar.'));
+    return;
+  }
+  main.replaceChildren(
+    h('p', { class: 'legend', text: `${items.length} ${items.length === 1 ? 'nummer' : 'nummers'} in het repertoire. Noteer hier wat beter moet, afspraken over de structuur of wat je volgende repetitie wil proberen.` }),
+    h('div', { class: 'list' }, items.map(({ p, s }) => {
+      const id = s.spotify_id;
+      const thread = S.threads.filter(c => c.song_id === id);
+      const t = tally(id);
+      const ta = h('textarea', { id: 'n-' + id, maxlength: '1000', rows: '2', placeholder: 'Schrijf een opmerking…', 'aria-label': 'Nieuwe opmerking bij ' + s.title });
+      ta.value = S.drafts.get(id) || '';
+      ta.addEventListener('input', () => S.drafts.set(id, ta.value));
+      const post = h('button', { class: 'btn', type: 'submit', text: 'Plaatsen' });
+      const form = h('form', { class: 'composer', onsubmit: async e => {
+        e.preventDefault();
+        const body = ta.value.trim(); if (!body) return;
+        post.disabled = true;
+        const { error } = await S.sb.from('band_comments').insert({ song_id: id, member_id: S.me.id, body });
+        post.disabled = false;
+        if (error) return toast('Plaatsen mislukt: ' + errText(error));
+        S.drafts.delete(id);
+        await loadPlaying(); renderPlaying();
+      } }, ta, post);
+      const confirming = S.confirmRemove === id;
+      const added = names[p.added_by];
+      const player = h('div', { class: 'player' });
+      if (S.open.has('p-' + id)) player.append(embed(id));
+      return h('article', { class: 'card', 'data-playing': id },
+        songHead(s),
+        h('div', { class: 'meta-line' },
+          h('span', { text: `Op de lijst sinds ${fmtDate(p.added_at).replace(/ \d\d:\d\d$/, '')}${added ? ' door ' + added.name : ''}` }),
+          h('span', { class: 'mono', text: (t.score > 0 ? '+' : '') + t.score + ' punten' })),
+        h('div', { class: 'thread' }, thread.length ? thread.map(c => {
+          const m = names[c.member_id];
+          const mine = c.member_id === S.me.id;
+          return h('div', { class: 'msg' + (m?.instrument === 'coach' ? ' coachnote' : '') },
+            h('div', { class: 'msg-head' },
+              m?.instrument === 'coach' ? h('span', { class: 'badge', text: 'Coach' }) : null,
+              h('b', { text: m?.name || 'Oud bandlid' }), h('span', { class: 'muted', text: fmtDate(c.created_at) }),
+              mine ? h('button', { class: 'linkbtn', type: 'button', text: 'Wissen', 'aria-label': 'Eigen opmerking wissen', onclick: async () => {
+                const { error } = await S.sb.from('band_comments').delete().eq('id', c.id);
+                if (error) return toast('Wissen mislukt: ' + errText(error));
+                await loadPlaying(); renderPlaying();
+              } }) : null),
+            h('div', { class: 'msg-body', text: c.body }));
+        }) : h('p', { class: 'muted', style: 'margin:0;font-size:14px', text: 'Nog geen opmerkingen.' })),
+        form,
+        h('div', { class: 'actions' },
+          h('button', { type: 'button', text: S.open.has('p-' + id) ? 'Speler sluiten' : '▶ Luisteren', onclick: () => { const k = 'p-' + id; S.open.has(k) ? S.open.delete(k) : S.open.add(k); renderPlaying(); } }),
+          h('a', { href: 'https://open.spotify.com/track/' + id, target: '_blank', rel: 'noopener', text: 'Open in Spotify' }),
+          confirming
+            ? h('span', { class: 'confirm' }, 'Van de lijst halen? ',
+                h('button', { type: 'button', class: 'danger', text: 'Ja, weg', onclick: e => togglePlaying(id, e.currentTarget) }),
+                h('button', { type: 'button', text: 'Annuleren', onclick: () => { S.confirmRemove = null; renderPlaying(); } }))
+            : h('button', { type: 'button', class: 'subtle', text: 'Van de lijst halen', onclick: () => { S.confirmRemove = id; renderPlaying(); } })),
+        player);
+    })));
+  if (focusedId) { const el = document.getElementById(focusedId); if (el) { el.focus(); if (el.setSelectionRange) el.setSelectionRange(el.value.length, el.value.length); } }
 }
 
 function emptyState() {

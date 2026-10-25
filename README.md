@@ -8,6 +8,7 @@ Samen stemmen op de nummers uit de gedeelde Spotify-playlist van de band.
 Bandleden loggen in met de **bandcode** en kiezen hun naam. Per nummer: ★ Super / Ja / Misschien / Nee, moeilijkheid voor hun eigen instrument en een opmerking. Onder **Resultaten** ziet iedereen de ranglijst.
 
 - **Superlike:** iedereen heeft er 3, voor nummers waar je echt fan van bent (+3 punten).
+- **We spelen:** zet bij Resultaten een nummer op de lijst met "＋ We spelen dit". In de tab **We spelen** staan alle nummers die jullie aan het instuderen zijn, elk met een eigen commentaarlijst. Iedereen kan reageren en zijn eigen opmerkingen wissen.
 - **Coach:** kies bij het aanmelden "Coach" als instrument. Een coach stemt mee en geeft advies per nummer, maar geeft geen moeilijkheid. Coach-advies staat bovenaan bij de opmerkingen.
 
 ## Hoe het werkt
@@ -17,6 +18,7 @@ Bandleden loggen in met de **bandcode** en kiezen hun naam. Per nummer: ★ Supe
 | `index.html`, `js/app.js` | De website (GitHub Pages) |
 | `connect.html` | Eenmalig inloggen bij Spotify + eerste keer nummers ophalen |
 | `supabase/setup.sql` | Database: tabellen, beveiliging, bandcode |
+| `supabase/update-2-we-spelen.sql` | Update voor de tab "We spelen" met commentaren |
 | `supabase/update-1-superlike-coach.sql` | Update voor wie setup.sql al vóór de superlike/coach-functie had uitgevoerd |
 | `scripts/sync.mjs` + `.github/workflows/sync.yml` | Haalt elk half uur nieuwe nummers op uit de playlist |
 | `config.json` | Openbare instellingen (Supabase-adres, publishable key, Spotify Client ID) |
