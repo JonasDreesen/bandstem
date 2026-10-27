@@ -11,6 +11,7 @@ Bandleden loggen in met de **bandcode** en kiezen hun naam. Per nummer: ★ Supe
 - **We spelen:** zet bij Resultaten een nummer op de lijst met "＋ We spelen dit". In de tab **We spelen** staan alle nummers die jullie aan het instuderen zijn, elk met een eigen commentaarlijst. Iedereen kan reageren en zijn eigen opmerkingen wissen.
 - **Documenten:** in de tab We spelen kan iedereen bestanden toevoegen (partituren, tabs, foto's, opnames; max. 25 MB per bestand), bij een nummer of algemeen bij "Banddocumenten". Iedereen kan ze openen; alleen wie een document toevoegde kan het wissen.
 - **Toonaard:** per nummer op de lijst geef je aan of jullie het in de originele toonaard spelen of in een andere (met velden "Origineel" en "Wij spelen in").
+- **Als app:** op gsm verschijnt een melding om Bandstem op het beginscherm te zetten (iPhone: Safari › Deel › Zet op beginscherm; Android: Installeren). Let op: op iPhone moet je in de app één keer opnieuw inloggen met de bandcode.
 - **Coach:** kies bij het aanmelden "Coach" als instrument. Een coach stemt mee en geeft advies per nummer, maar geeft geen moeilijkheid. Coach-advies staat bovenaan bij de opmerkingen.
 
 ## Hoe het werkt
@@ -24,6 +25,7 @@ Bandleden loggen in met de **bandcode** en kiezen hun naam. Per nummer: ★ Supe
 | `supabase/update-2-we-spelen.sql` | Update voor de tab "We spelen" met commentaren |
 | `supabase/update-1-superlike-coach.sql` | Update voor wie setup.sql al vóór de superlike/coach-functie had uitgevoerd |
 | `scripts/sync.mjs` + `.github/workflows/sync.yml` | Haalt elk half uur nieuwe nummers op uit de playlist |
+| `manifest.webmanifest`, `sw.js`, `icons/` | Installeerbaar als app op gsm (icoon, beginscherm) |
 | `config.json` | Openbare instellingen (Supabase-adres, publishable key, Spotify Client ID) |
 
 Alleen de beheerder koppelt Spotify. Bandleden hebben geen Spotify-toestemming nodig. Sinds februari 2026 laat Spotify maar 5 gebruikers per zelfgemaakte app toe, en de eigenaar van de app moet Premium hebben.

@@ -150,6 +150,7 @@ function showLogin(step = 1, members = []) {
 // ---------- App ----------
 async function startApp() {
   document.getElementById('top').hidden = false;
+  renderInstall();
   S.view = VIEWS[location.hash.slice(1)] ? location.hash.slice(1) : 'stemmen';
   renderHeader();
   main.replaceChildren(h('p', { class: 'muted', text: 'Nummers laden…' }));
@@ -656,5 +657,43 @@ function emptyState() {
     h('p', { style: 'margin:0 0 6px;font-weight:600;color:var(--ink)', text: 'Nog geen nummers' }),
     connected ? 'De playlist is gekoppeld maar nog leeg, of de eerste sync loopt nog.' : 'Jonas moet de Spotify-playlist nog koppelen. Dat gebeurt via de pagina connect.html.');
 }
+
+// ---------- Installeren als app ----------
+let installEvent = null;
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isMobile = () => isIOS() || /Android/i.test(navigator.userAgent);
+function dismissInstall() { try { localStorage.setItem('bandstem-install-dismissed', '1'); } catch { /* geen opslag */ } }
+function installDismissed() { try { return localStorage.getItem('bandstem-install-dismissed') === '1'; } catch { return false; } }
+function renderInstall() {
+  const slot = document.getElementById('install-slot');
+  if (!slot) return;
+  if (isStandalone() || installDismissed() || !S.me || (!installEvent && !isMobile())) { slot.replaceChildren(); return; }
+  const close = h('button', { class: 'linkbtn', type: 'button', text: 'Niet nu', onclick: () => {
+    dismissInstall();
+    slot.replaceChildren();
+  } });
+  let how;
+  if (installEvent) {
+    how = h('button', { class: 'btn', type: 'button', text: 'Installeren', onclick: async () => {
+      installEvent.prompt();
+      const { outcome } = await installEvent.userChoice;
+      installEvent = null;
+      if (outcome === 'accepted') { dismissInstall(); toast('Bandstem staat nu op je beginscherm'); }
+      renderInstall();
+    } });
+  } else if (isIOS()) {
+    how = h('p', { class: 'install-steps' }, 'Tik in Safari onderaan op ', h('b', { text: 'Deel' }), ' (vierkant met pijl), scrol en kies ', h('b', { text: 'Zet op beginscherm' }), '.');
+  } else {
+    how = h('p', { class: 'install-steps' }, 'Open het menu van je browser (⋮) en kies ', h('b', { text: 'App installeren' }), ' of ', h('b', { text: 'Toevoegen aan startscherm' }), '.');
+  }
+  slot.replaceChildren(h('div', { class: 'install' },
+    h('img', { src: 'icons/icon-192.png', alt: '', width: '44', height: '44' }),
+    h('div', { class: 'install-text' }, h('b', { text: 'Zet Bandstem op je beginscherm' }), how),
+    close));
+}
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvent = e; renderInstall(); });
+window.addEventListener('appinstalled', () => { installEvent = null; dismissInstall(); renderInstall(); });
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
 boot().catch(e => { main.replaceChildren(h('p', { class: 'error', text: errText(e) })); });

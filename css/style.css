@@ -244,3 +244,16 @@ a.doc-name:hover { text-decoration: underline; }
 .upload.busy { color: var(--muted); cursor: progress; }
 .linkbtn.danger { color: var(--no); }
 .card.general { gap: 8px; }
+
+/* ---------- Installeren ---------- */
+#install-slot:empty { display: none; }
+#install-slot { padding-block: 14px 0; }
+.install {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--tape); border-radius: var(--radius); padding: 12px;
+}
+.install img { border-radius: 10px; display: block; }
+.install-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 14px; }
+.install-steps { margin: 0; color: var(--muted); }
+.install .btn { padding: 8px 14px; justify-self: start; }
+@media (max-width: 420px) { .install { grid-template-columns: 44px minmax(0, 1fr); } .install > .linkbtn { grid-column: 2; justify-self: start; } }
