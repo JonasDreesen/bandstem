@@ -213,3 +213,34 @@ textarea { resize: vertical; min-height: 64px; }
 .composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
 .composer textarea { min-height: 44px; }
 @media (max-width: 420px) { .tab { padding-inline: 8px; } }
+
+/* ---------- Toonaard en documenten ---------- */
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.keyblock { display: flex; flex-direction: column; gap: 8px; }
+.keyfields > .field { flex: 1 1 140px; }
+.keyfields .input { padding: 8px 10px; }
+.keychip { font-family: var(--font-mono); font-size: 12px; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+.sub { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 10px; }
+.docs { display: flex; flex-direction: column; gap: 8px; }
+.doc { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.doc-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); background: var(--track); }
+.doc-icon {
+  width: 40px; height: 40px; border-radius: 4px; display: grid; place-items: center; text-align: center;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: .02em;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); overflow: hidden;
+}
+.doc-pdf { background: var(--no-bg); color: var(--no); border-color: transparent; }
+.doc-audio { background: var(--super-bg); color: var(--super); border-color: transparent; }
+.doc-main { display: flex; flex-direction: column; min-width: 0; }
+.doc-name { font-weight: 600; color: var(--accent); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.doc-name:hover { text-decoration: underline; }
+.doc-meta { font-size: 12.5px; color: var(--muted); }
+.upload {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  border: 1px dashed var(--line); border-radius: 8px; padding: 8px 12px; font-weight: 600; font-size: 14px; color: var(--accent); background: transparent;
+}
+.upload:hover { border-color: var(--accent); }
+.upload:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.upload.busy { color: var(--muted); cursor: progress; }
+.linkbtn.danger { color: var(--no); }
+.card.general { gap: 8px; }

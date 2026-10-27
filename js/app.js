@@ -6,10 +6,14 @@ const VOTE = { super: '★ Super', yes: 'Ja', maybe: 'Misschien', no: 'Nee' };
 const POINTS = { super: 3, yes: 2, maybe: 1, no: -2 };
 const SUPER_MAX = 3;
 const NEW_DAYS = 7;
+const DOC_BUCKET = 'band-docs';
+const DOC_MAX = 25 * 1024 * 1024;
+const DOC_BLOCKED = /\.(html?|svg|js|mjs|exe|bat|cmd|sh|msi|apk)$/i;
 
 const S = {
   sb: null, me: null, code: '',
   members: [], songs: [], votes: new Map(), status: null, playing: [], threads: [], drafts: new Map(), confirmRemove: null,
+  docs: [], docUrls: new Map(), confirmDoc: null, uploading: new Set(),
   view: 'stemmen', filter: 'todo', sort: 'score', resFilter: 'all',
   open: new Set(), comments: new Set(), queues: new Map(), timers: new Map(),
 };
@@ -158,6 +162,7 @@ async function startApp() {
   S.sb.channel('band-playing')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'band_playing' }, reloadPlaying)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'band_comments' }, reloadPlaying)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'band_documents' }, reloadPlaying)
     .subscribe();
   setInterval(refreshQuiet, 3 * 60 * 1000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshQuiet(); });
@@ -188,12 +193,21 @@ async function loadVotes() {
   for (const [k, v] of pending) S.votes.set(k, v); // eigen onopgeslagen wijzigingen niet overschrijven
 }
 async function loadPlaying() {
-  const [pl, cm] = await Promise.all([
-    S.sb.from('band_playing').select('song_id,added_by,added_at').order('added_at'),
+  const [pl, cm, dc] = await Promise.all([
+    S.sb.from('band_playing').select('*').order('added_at'),
     S.sb.from('band_comments').select('id,song_id,member_id,body,created_at').order('created_at'),
+    S.sb.from('band_documents').select('*').order('created_at'),
   ]);
   if (!pl.error) S.playing = pl.data || [];
   if (!cm.error) S.threads = cm.data || [];
+  if (!dc.error) {
+    S.docs = dc.data || [];
+    const paths = S.docs.map(d => d.path).filter(p => !S.docUrls.has(p) || S.docUrls.get(p).until < Date.now() + 30 * 60000);
+    if (paths.length) {
+      const { data } = await S.sb.storage.from(DOC_BUCKET).createSignedUrls(paths, 6 * 3600);
+      for (const r of data || []) if (r.signedUrl) S.docUrls.set(r.path, { url: r.signedUrl, until: Date.now() + 6 * 3600 * 1000 });
+    }
+  }
 }
 const isPlaying = id => S.playing.some(p => p.song_id === id);
 
@@ -454,17 +468,129 @@ function fmtDate(iso) {
   return d.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' }) + ' ' + time;
 }
 
+// ---------- Toonaard ----------
+async function saveKey(songId, patch) {
+  const { error } = await S.sb.from('band_playing')
+    .update({ ...patch, key_by: S.me.id, key_at: new Date().toISOString() }).eq('song_id', songId);
+  if (error) return toast('Toonaard opslaan mislukt: ' + errText(error));
+  if ('key_original' in patch) S.drafts.delete('ko-' + songId);
+  if ('key_played' in patch) S.drafts.delete('kp-' + songId);
+  await loadPlaying(); renderPlaying();
+}
+function keyBlock(p, names) {
+  const id = p.song_id;
+  const by = names[p.key_by];
+  const field = (prefix, col, label, ph) => {
+    const inp = h('input', { class: 'input', id: prefix + id, type: 'text', maxlength: '20', placeholder: ph, autocomplete: 'off' });
+    inp.value = S.drafts.has(prefix + id) ? S.drafts.get(prefix + id) : (p[col] || '');
+    inp.addEventListener('input', () => S.drafts.set(prefix + id, inp.value));
+    inp.addEventListener('change', () => saveKey(id, { [col]: inp.value.trim() || null }));
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+    return h('div', { class: 'field' }, h('label', { class: 'label', for: prefix + id, text: label }), inp);
+  };
+  return h('div', { class: 'keyblock' },
+    h('div', { class: 'difrow' },
+      h('span', { class: 'label', text: 'Toonaard' }),
+      h('div', { class: 'seg small', role: 'group', 'aria-label': 'Toonaard' },
+        h('button', { type: 'button', 'data-d': 'o', 'aria-pressed': String(p.key_changed === false), text: 'Origineel',
+          onclick: () => saveKey(id, { key_changed: p.key_changed === false ? null : false }) }),
+        h('button', { type: 'button', 'data-d': 'a', 'aria-pressed': String(p.key_changed === true), text: 'Andere toonaard',
+          onclick: () => saveKey(id, { key_changed: p.key_changed === true ? null : true }) }))),
+    p.key_changed === true ? h('div', { class: 'row keyfields' },
+      field('ko-', 'key_original', 'Origineel', 'bv. E'),
+      field('kp-', 'key_played', 'Wij spelen in', 'bv. D of capo 2')) : null,
+    p.key_changed != null && by ? h('span', { class: 'saved', text: `Aangepast door ${by.name}, ${fmtDate(p.key_at)}` }) : null);
+}
+function keySummary(p) {
+  if (p.key_changed === false) return 'Originele toonaard';
+  if (p.key_changed === true) {
+    if (p.key_original && p.key_played) return `${p.key_original} → ${p.key_played}`;
+    if (p.key_played) return `Gespeeld in ${p.key_played}`;
+    return 'Andere toonaard';
+  }
+  return null;
+}
+
+// ---------- Documenten ----------
+const fmtSize = b => b == null ? '' : b < 1024 * 1024 ? Math.max(1, Math.round(b / 1024)) + ' kB' : (b / 1024 / 1024).toFixed(1).replace('.', ',') + ' MB';
+function docKind(d) {
+  const ext = (d.name.match(/\.([a-z0-9]{1,5})$/i) || [, ''])[1].toUpperCase();
+  if (/^image\//.test(d.mime || '')) return { kind: 'img', label: ext || 'FOTO' };
+  if (/pdf/.test(d.mime || '') || ext === 'PDF') return { kind: 'pdf', label: 'PDF' };
+  if (/^audio\//.test(d.mime || '')) return { kind: 'audio', label: '♪ ' + (ext || 'AUDIO') };
+  return { kind: 'file', label: ext || 'BESTAND' };
+}
+async function uploadDocs(songId, files) {
+  const list = [...files];
+  const bad = list.filter(f => f.size > DOC_MAX || DOC_BLOCKED.test(f.name));
+  for (const f of bad) toast(f.size > DOC_MAX ? `"${f.name}" is groter dan 25 MB.` : `"${f.name}" kan niet geüpload worden (bestandstype niet toegelaten).`);
+  const ok = list.filter(f => !bad.includes(f));
+  if (!ok.length) return;
+  const slot = songId || 'algemeen';
+  S.uploading.add(slot); renderPlaying();
+  let done = 0;
+  for (const f of ok) {
+    const safe = f.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80) || 'bestand';
+    const path = `${slot}/${crypto.randomUUID()}-${safe}`;
+    const up = await S.sb.storage.from(DOC_BUCKET).upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: false });
+    if (up.error) { toast(`Uploaden van "${f.name}" mislukt: ${errText(up.error)}`); continue; }
+    const ins = await S.sb.from('band_documents').insert({ song_id: songId, member_id: S.me.id, name: f.name.slice(0, 200), path, size_bytes: f.size, mime: f.type || null });
+    if (ins.error) { await S.sb.storage.from(DOC_BUCKET).remove([path]); toast(`"${f.name}" opslaan mislukt: ${errText(ins.error)}`); continue; }
+    done++;
+  }
+  S.uploading.delete(slot);
+  if (done) toast(done === 1 ? 'Document toegevoegd' : `${done} documenten toegevoegd`);
+  await loadPlaying(); renderPlaying();
+}
+async function deleteDoc(d) {
+  const rm = await S.sb.storage.from(DOC_BUCKET).remove([d.path]);
+  if (rm.error) return toast('Wissen mislukt: ' + errText(rm.error));
+  const del = await S.sb.from('band_documents').delete().eq('id', d.id);
+  if (del.error) return toast('Wissen mislukt: ' + errText(del.error));
+  S.confirmDoc = null; S.docUrls.delete(d.path);
+  await loadPlaying(); renderPlaying();
+}
+function docsBlock(songId, names) {
+  const slot = songId || 'algemeen';
+  const docs = S.docs.filter(d => (d.song_id || null) === (songId || null));
+  const input = h('input', { type: 'file', multiple: true, class: 'visually-hidden', id: 'f-' + slot,
+    accept: 'application/pdf,image/*,audio/*,.txt,.doc,.docx,.gp,.gpx,.gp5,.gp7,.musicxml,.mxl,.mscz,.mid,.midi',
+    onchange: e => { const fl = e.target.files; if (fl?.length) uploadDocs(songId, fl); e.target.value = ''; } });
+  const busy = S.uploading.has(slot);
+  return h('div', { class: 'docs' },
+    docs.map(d => {
+      const k = docKind(d), url = S.docUrls.get(d.path)?.url, m = names[d.member_id], mine = d.member_id === S.me.id;
+      const confirming = S.confirmDoc === d.id;
+      return h('div', { class: 'doc' },
+        k.kind === 'img' && url ? h('img', { class: 'doc-thumb', src: url, alt: '', loading: 'lazy', onerror: e => e.currentTarget.replaceWith(h('span', { class: 'doc-icon doc-file', text: k.label.slice(0, 5) })) }) : h('span', { class: 'doc-icon doc-' + k.kind, text: k.label.slice(0, 5) }),
+        h('div', { class: 'doc-main' },
+          url ? h('a', { href: url, target: '_blank', rel: 'noopener', class: 'doc-name', text: d.name }) : h('span', { class: 'doc-name', text: d.name }),
+          h('span', { class: 'doc-meta', text: [fmtSize(d.size_bytes), m?.name || 'Oud bandlid', fmtDate(d.created_at)].filter(Boolean).join(' · ') })),
+        mine ? (confirming
+          ? h('span', { class: 'confirm' }, h('button', { class: 'linkbtn danger', type: 'button', text: 'Ja, wissen', onclick: () => deleteDoc(d) }),
+              h('button', { class: 'linkbtn', type: 'button', text: 'Nee', onclick: () => { S.confirmDoc = null; renderPlaying(); } }))
+          : h('button', { class: 'linkbtn', type: 'button', text: 'Wissen', 'aria-label': 'Document ' + d.name + ' wissen', onclick: () => { S.confirmDoc = d.id; renderPlaying(); } })) : null);
+    }),
+    h('label', { class: 'upload' + (busy ? ' busy' : ''), for: 'f-' + slot }, busy ? 'Bezig met uploaden…' : '＋ Document toevoegen', input),
+    !docs.length && !songId ? h('span', { class: 'saved', text: 'Bv. de setlist, afspraken of een repetitieschema.' }) : null);
+}
+
 function renderPlaying() {
   const focusedId = document.activeElement?.id;
   const names = Object.fromEntries(S.members.map(m => [m.id, m]));
   const items = S.playing.map(p => ({ p, s: S.songs.find(x => x.spotify_id === p.song_id) })).filter(x => x.s);
+  const general = h('section', { class: 'card general' },
+    h('h2', { text: 'Banddocumenten' }),
+    h('p', { class: 'muted', style: 'margin:0;font-size:14px', text: 'Voor iedereen zichtbaar. Documenten bij een specifiek nummer, zoals een partituur, voeg je toe bij dat nummer hieronder.' }),
+    docsBlock(null, names));
   if (!items.length) {
-    main.replaceChildren(h('div', { class: 'empty' },
+    main.replaceChildren(general, h('div', { class: 'empty' },
       h('p', { style: 'margin:0 0 6px;font-weight:600;color:var(--ink)', text: 'Nog niets op de lijst' }),
       'Ga naar Resultaten en tik bij een nummer op "＋ We spelen dit". Hier verschijnen dan de nummers die jullie aan het instuderen zijn, met ruimte voor commentaar.'));
     return;
   }
   main.replaceChildren(
+    general,
     h('p', { class: 'legend', text: `${items.length} ${items.length === 1 ? 'nummer' : 'nummers'} in het repertoire. Noteer hier wat beter moet, afspraken over de structuur of wat je volgende repetitie wil proberen.` }),
     h('div', { class: 'list' }, items.map(({ p, s }) => {
       const id = s.spotify_id;
@@ -492,7 +618,10 @@ function renderPlaying() {
         songHead(s),
         h('div', { class: 'meta-line' },
           h('span', { text: `Op de lijst sinds ${fmtDate(p.added_at).replace(/ \d\d:\d\d$/, '')}${added ? ' door ' + added.name : ''}` }),
+          keySummary(p) ? h('span', { class: 'keychip', text: '♯ ' + keySummary(p) }) : null,
           h('span', { class: 'mono', text: (t.score > 0 ? '+' : '') + t.score + ' punten' })),
+        keyBlock(p, names),
+        h('div', { class: 'sub' }, h('span', { class: 'label', text: 'Documenten' }), docsBlock(id, names)),
         h('div', { class: 'thread' }, thread.length ? thread.map(c => {
           const m = names[c.member_id];
           const mine = c.member_id === S.me.id;
